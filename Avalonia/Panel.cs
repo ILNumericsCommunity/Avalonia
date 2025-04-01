@@ -28,7 +28,7 @@ public sealed class Panel : Control, IDriver
     {
         _clock = new Clock { Running = false };
 
-        _driver = new GDIDriver(new BackBuffer { Rectangle = new Rectangle(0, 0, (int) Bounds.Width, (int) Bounds.Height) });
+        _driver = new GDIDriver(new BackBuffer());
         _driver.FPSChanged += (_, _) => OnFPSChanged();
         _driver.BeginRenderFrame += (_, a) => OnBeginRenderFrame(a.Parameter);
         _driver.EndRenderFrame += (_, a) => OnEndRenderFrame(a.Parameter);
@@ -194,17 +194,20 @@ public sealed class Panel : Control, IDriver
 
     public override void Render(DrawingContext context)
     {
+        var scaling = VisualRoot?.RenderScaling ?? 1.0;
+        var rectangle = new Rectangle(0, 0, (int) (scaling * Bounds.Width), (int) (scaling * Bounds.Height));
+
+        _driver.BackBuffer.Rectangle = rectangle;
         _driver.Configure();
         _driver.Render();
 
         BitmapData? srcBmpData = null;
         try
         {
-            srcBmpData = _driver.BackBuffer.Bitmap.LockBits(new Rectangle(0, 0, (int) Bounds.Width, (int) Bounds.Height),
-                                                            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-            var avWritableBitmap = CreateBitmapFromArgbPixelData(srcBmpData.Scan0, srcBmpData.Width, srcBmpData.Height);
+            srcBmpData = _driver.BackBuffer.Bitmap.LockBits(rectangle, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var bitmap = CreateBitmapFromArgbPixelData(srcBmpData.Scan0, srcBmpData.Width, srcBmpData.Height, scaling);
 
-            context.DrawImage(avWritableBitmap, new Rect(0, 0, (int) Bounds.Width, (int) Bounds.Height));
+            context.DrawImage(bitmap, new Rect(0, 0, rectangle.Width, rectangle.Height));
             base.Render(context);
         }
         finally
@@ -214,9 +217,9 @@ public sealed class Panel : Control, IDriver
         }
     }
 
-    private static unsafe WriteableBitmap CreateBitmapFromArgbPixelData(nint pixelDateArgb, int pixelWidth, int pixelHeight)
+    private static unsafe WriteableBitmap CreateBitmapFromArgbPixelData(IntPtr pixelDateArgb, int pixelWidth, int pixelHeight, double scaling)
     {
-        var dpi = new Vector(96, 96); // Standard may need to change on some devices 
+        var dpi = new Vector(96 / scaling, 96 / scaling);
         var bitmap = new WriteableBitmap(new PixelSize(pixelWidth, pixelHeight), dpi, Platform_PixelFormat.Bgra8888, AlphaFormat.Premul);
 
         var lenBytes = pixelWidth * pixelHeight * 4;
@@ -235,7 +238,7 @@ public sealed class Panel : Control, IDriver
     {
         if (Bounds.Width > 0 && Bounds.Height > 0)
         {
-            _driver.Size = new System.Drawing.Size((int) Bounds.Width, (int) Bounds.Height);
+            _driver.BackBuffer.Rectangle = new Rectangle(0, 0, (int) Bounds.Width, (int) Bounds.Height);
             InvalidateVisual();
         }
 

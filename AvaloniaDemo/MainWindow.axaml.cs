@@ -18,8 +18,7 @@ namespace AvaloniaDemo
             {
                 new PlotCube(twoDMode: false)
                 {
-                    new Surface(tosingle(B),
-                                colormap: Colormaps.Hot) { new Colorbar() }
+                    new Surface(tosingle(B), colormap: Colormaps.Jet) { new Colorbar() }
                 }
             };
             ilPanel.Scene.Configure();
