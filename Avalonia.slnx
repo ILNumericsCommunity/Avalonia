@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Avalonia/Avalonia.csproj" />
+  <Project Path="AvaloniaDemo/AvaloniaDemo.csproj" Id="5b83eff8-2b3e-44ab-852e-2e71ea057c77" />
+</Solution>

@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>ILNumerics.Community.Avalonia</RootNamespace>
+    <AssemblyName>ILNumerics.Community.Avalonia</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.6" />
+    <PackageReference Include="ILNumerics.Computing" Version="7.1.22" />
+    <PackageReference Include="ILNumerics.Drawing" Version="7.1.22" />
+    <PackageReference Include="ILNumerics.Toolboxes.Drawing2" Version="7.1.22" />
+    <PackageReference Include="AnyAscii" Version="0.3.2" />
+    <PackageReference Include="MinVer" Version="6.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
