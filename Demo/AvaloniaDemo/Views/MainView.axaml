@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ilnAvalonia="clr-namespace:ILNumerics.Community.Avalonia;assembly=ILNumerics.Community.Avalonia"
+             xmlns:views="clr-namespace:AvaloniaDemo.Views"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="600"
+             x:Class="AvaloniaDemo.Views.MainView">
+
+    <DockPanel Margin="10" LastChildFill="True">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="5">
+            <Label Content="Scene:" Margin="0,0,5,0" VerticalAlignment="Center" />
+            <ComboBox x:Name="sceneComboBox" Width="200" SelectionChanged="SceneComboBox_OnSelectionChanged">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate DataType="views:Scenes">
+                        <TextBlock Text="{Binding .}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+        <ilnAvalonia:Panel x:Name="ilPanel" Background="White" />
+    </DockPanel>
+</UserControl>

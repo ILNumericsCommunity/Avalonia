@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Drawing.Imaging;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -10,7 +9,6 @@ using Avalonia.Platform;
 using ILNumerics.Drawing;
 using Color = Avalonia.Media.Color;
 using Control = Avalonia.Controls.Control;
-using PixelFormat = System.Drawing.Imaging.PixelFormat;
 using Platform_PixelFormat = Avalonia.Platform.PixelFormat;
 
 namespace ILNumerics.Community.Avalonia;
@@ -24,11 +22,17 @@ public sealed class Panel : Control, IDriver
     private readonly GDIDriver _driver;
     private readonly InputController _inputController;
 
+    static Panel()
+    {
+        // Disable GDI+ to ensure consistent rendering across all Avalonia platforms (incl. Windows)
+        GDIDriver.IsGDIPlusSupported = false;
+    }
+
     public Panel()
     {
         _clock = new Clock { Running = false };
 
-        _driver = new GDIDriver(new BackBuffer());
+        _driver = new GDIDriver(new CommonBackBuffer());
         _driver.FPSChanged += (_, _) => OnFPSChanged();
         _driver.BeginRenderFrame += (_, a) => OnBeginRenderFrame(a.Parameter);
         _driver.EndRenderFrame += (_, a) => OnEndRenderFrame(a.Parameter);
@@ -196,54 +200,31 @@ public sealed class Panel : Control, IDriver
     {
         var scaling = VisualRoot?.RenderScaling ?? 1.0;
         var rectangle = new Rectangle(0, 0, (int) (scaling * Bounds.Width), (int) (scaling * Bounds.Height));
+        if (rectangle.Width <= 0 || rectangle.Height <= 0)
+            return;
 
         _driver.BackBuffer.Rectangle = rectangle;
         _driver.Configure();
         _driver.Render();
 
-        BitmapData? srcBmpData = null;
-        try
+        if (_driver.BackBuffer is CommonBackBuffer backBuffer)
         {
-            srcBmpData = _driver.BackBuffer.Bitmap.LockBits(rectangle, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-            var bitmap = CreateBitmapFromArgbPixelData(srcBmpData.Scan0, srcBmpData.Width, srcBmpData.Height, scaling);
+            Array<int> pixelBuffer = backBuffer.PixelBuffer;
+            var pixelSize = new PixelSize(backBuffer.Size.Width, backBuffer.Size.Height);
+            var dpi = new Vector(96.0 / scaling, 96.0 / scaling);
 
+            var bitmap = new WriteableBitmap(Platform_PixelFormat.Rgb32, AlphaFormat.Premul, pixelBuffer.GetHostPointerForRead(), pixelSize, dpi, pixelSize.Width * 4);
             context.DrawImage(bitmap, new Rect(0, 0, rectangle.Width, rectangle.Height));
-            base.Render(context);
         }
-        finally
-        {
-            if (srcBmpData != null)
-                _driver.BackBuffer.Bitmap.UnlockBits(srcBmpData);
-        }
-    }
+        else
+            throw new InvalidOperationException("BackBuffer is not of type CommonBackBuffer.");
 
-    private static unsafe WriteableBitmap CreateBitmapFromArgbPixelData(IntPtr pixelDateArgb, int pixelWidth, int pixelHeight, double scaling)
-    {
-        var dpi = new Vector(96 / scaling, 96 / scaling);
-        var bitmap = new WriteableBitmap(new PixelSize(pixelWidth, pixelHeight), dpi, Platform_PixelFormat.Bgra8888, AlphaFormat.Premul);
-
-        var lenBytes = pixelWidth * pixelHeight * 4;
-        using var frameBuffer = bitmap.Lock();
-        Buffer.MemoryCopy((void*) pixelDateArgb, (void*) frameBuffer.Address, lenBytes, lenBytes);
-
-        return bitmap;
+        base.Render(context);
     }
 
     #endregion
 
     #region PointerEventHandlers
-
-    /// <inheritdoc />
-    protected override void OnSizeChanged(SizeChangedEventArgs e)
-    {
-        if (Bounds.Width > 0 && Bounds.Height > 0)
-        {
-            _driver.BackBuffer.Rectangle = new Rectangle(0, 0, (int) Bounds.Width, (int) Bounds.Height);
-            InvalidateVisual();
-        }
-
-        base.OnSizeChanged(e);
-    }
 
     /// <inheritdoc />
     protected override void OnPointerEntered(PointerEventArgs e)
