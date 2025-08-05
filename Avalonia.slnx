@@ -1,10 +1,14 @@
 <Solution>
   <Folder Name="/Demo/">
     <Project Path="Demo/AvaloniaDemo/AvaloniaDemo.csproj" />
-    <Project Path="Demo/AvaloniaDemo.Android/AvaloniaDemo.Android.csproj" />
+    <Project Path="Demo/AvaloniaDemo.Android/AvaloniaDemo.Android.csproj">
+      <Deploy />
+    </Project>
     <Project Path="Demo/AvaloniaDemo.Browser/AvaloniaDemo.Browser.csproj" />
     <Project Path="Demo/AvaloniaDemo.Desktop/AvaloniaDemo.Desktop.csproj" />
-    <Project Path="Demo/AvaloniaDemo.iOS/AvaloniaDemo.iOS.csproj" />
+    <Project Path="Demo/AvaloniaDemo.iOS/AvaloniaDemo.iOS.csproj">
+      <Deploy />
+    </Project>
   </Folder>
   <Project Path="Avalonia/Avalonia.csproj" />
 </Solution>

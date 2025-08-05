@@ -1,13 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+﻿<Project Sdk="Microsoft.NET.Sdk.WebAssembly">  
   <PropertyGroup>
-    <TargetFramework>net8.0-browser</TargetFramework>
     <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-browser</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ILNumerics.Core" Version="7.2.35" />
-    <PackageReference Include="Avalonia.Browser" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Browser" Version="11.3.4" />
+    <PackageReference Include="ILNumerics.Core" Version="7.2.41" />
   </ItemGroup>
 
   <ItemGroup>

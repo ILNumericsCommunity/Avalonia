@@ -9,24 +9,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ILNumerics.Core" Version="7.2.35" />
-    <PackageReference Include="Avalonia" Version="11.3.2" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.2" />
+    <PackageReference Include="Avalonia" Version="11.3.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.4" />
     <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.2">
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.4">
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>none</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="ILNumerics.Core" Version="7.2.41" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Avalonia\Avalonia.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="ILNumerics_deploy\net8.0\" />
   </ItemGroup>
 </Project>

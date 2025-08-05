@@ -30,6 +30,9 @@ public partial class MainView : UserControl
 
     private void SceneComboBox_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (sceneComboBox.SelectedIndex < 0)
+            return;
+
         switch (sceneComboBox.SelectedIndex)
         {
             case (int) Scenes.LinePlotXY:
