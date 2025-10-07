@@ -9,6 +9,7 @@ using ILNumerics.Drawing;
 using Color = Avalonia.Media.Color;
 using Control = Avalonia.Controls.Control;
 using Platform_PixelFormat = Avalonia.Platform.PixelFormat;
+using Point = System.Drawing.Point;
 
 namespace ILNumerics.Community.Avalonia;
 
@@ -197,15 +198,18 @@ public sealed class Panel : Control, IDriver
 
     public override void Render(DrawingContext context)
     {
+        // Get current scaling factor and control size
         var scaling = VisualRoot?.RenderScaling ?? 1.0;
         var rectangle = new Rectangle(0, 0, (int) (scaling * Bounds.Width), (int) (scaling * Bounds.Height));
         if (rectangle.Width <= 0 || rectangle.Height <= 0)
             return;
 
+        // Render using 'GDI' driver (now also works on non-Windows platforms)
         _driver.BackBuffer.Rectangle = rectangle;
         _driver.Configure();
         _driver.Render();
 
+        // Copy pixel buffer to Avalonia WriteableBitmap and draw it
         if (_driver.BackBuffer is CommonBackBuffer backBuffer)
         {
             Array<int> pixelBuffer = backBuffer.PixelBuffer;
@@ -216,7 +220,7 @@ public sealed class Panel : Control, IDriver
             context.DrawImage(bitmap, new Rect(0, 0, rectangle.Width, rectangle.Height));
         }
         else
-            throw new InvalidOperationException("BackBuffer is not of type CommonBackBuffer.");
+            throw new InvalidOperationException($"BackBuffer is not of type {nameof(CommonBackBuffer)}.");
 
         base.Render(context);
     }
@@ -244,7 +248,7 @@ public sealed class Panel : Control, IDriver
     /// <inheritdoc />
     protected override void OnPointerMoved(PointerEventArgs e)
     {
-        _inputController.OnMouseMove(PointerMovedMouseEvent(e, Bounds, _clock.TimeMilliseconds));
+        _inputController.OnMouseMove(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerMoved(e);
     }
@@ -252,7 +256,7 @@ public sealed class Panel : Control, IDriver
     /// <inheritdoc />
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        _inputController.OnMouseDown(PointerPressedMouseEvent(e, Bounds, _clock.TimeMilliseconds));
+        _inputController.OnMouseDown(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerPressed(e);
     }
@@ -260,7 +264,7 @@ public sealed class Panel : Control, IDriver
     /// <inheritdoc />
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
-        _inputController.OnMouseUp(PointerReleasedMouseEvent(e, Bounds, _clock.TimeMilliseconds));
+        _inputController.OnMouseUp(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerReleased(e);
     }
@@ -268,7 +272,7 @@ public sealed class Panel : Control, IDriver
     /// <inheritdoc />
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
-        _inputController.OnMouseWheel(WheelMouseEvent(e, Bounds, _clock.TimeMilliseconds));
+        _inputController.OnMouseWheel(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerWheelChanged(e);
     }
@@ -287,103 +291,61 @@ public sealed class Panel : Control, IDriver
 
     #region MouseEventConversion
 
-    private MouseEventArgs PointerMovedMouseEvent(PointerEventArgs args, Rect rect, long timeMS)
+    private MouseEventArgs PointerEvent(PointerEventArgs args, Rect rect, long timeMS)
     {
+        // Get pointer position (normalized to current control size)
         var point = args.GetCurrentPoint(this);
-        var location = new System.Drawing.Point((int) point.Position.X, (int) point.Position.Y);
+        var location = new Point((int) point.Position.X, (int) point.Position.Y);
 
         var x = point.Position.X / rect.Width;
         var y = point.Position.Y / rect.Height;
         var locationF = new PointF((float) x, (float) y);
 
+        // Key modifiers
         var shift = (args.KeyModifiers & KeyModifiers.Shift) != 0;
         var alt = (args.KeyModifiers & KeyModifiers.Alt) != 0;
         var ctrl = (args.KeyModifiers & KeyModifiers.Control) != 0;
 
         var buttons = MouseButtons.None;
-        if (point.Properties.IsLeftButtonPressed)
-            buttons = MouseButtons.Left;
-        else if (point.Properties.IsMiddleButtonPressed)
-            buttons = MouseButtons.Center;
-        else if (point.Properties.IsRightButtonPressed)
-            buttons = MouseButtons.Right;
+        if (args is PointerReleasedEventArgs pointerReleasedEventArgs)
+        {
+            // Use the initially pressed button for released events
+            if (pointerReleasedEventArgs.InitialPressMouseButton.HasFlag(MouseButton.Left))
+                buttons = MouseButtons.Left;
+            else if (pointerReleasedEventArgs.InitialPressMouseButton.HasFlag(MouseButton.Middle))
+                buttons = MouseButtons.Center;
+            else if (pointerReleasedEventArgs.InitialPressMouseButton.HasFlag(MouseButton.Right))
+                buttons = MouseButtons.Right;
+        }
+        else
+        {
+            // Use the currently pressed button for other events
+            if (point.Properties.IsLeftButtonPressed)
+                buttons = MouseButtons.Left;
+            else if (point.Properties.IsMiddleButtonPressed)
+                buttons = MouseButtons.Center;
+            else if (point.Properties.IsRightButtonPressed)
+                buttons = MouseButtons.Right;
+        }
+
+        // Handle wheel events separately
+        if (args is PointerWheelEventArgs pointerWheelEventArgs)
+            return new MouseEventArgs(locationF, location, shift, alt, ctrl) { TimeMS = timeMS, Button = buttons, Delta = (int) pointerWheelEventArgs.Delta.Y };
 
         return new MouseEventArgs(locationF, location, shift, alt, ctrl) { TimeMS = timeMS, Button = buttons };
-    }
-
-    private MouseEventArgs PointerPressedMouseEvent(PointerPressedEventArgs args, Rect rect, long timeMS)
-    {
-        var point = args.GetCurrentPoint(this);
-        var location = new System.Drawing.Point((int) point.Position.X, (int) point.Position.Y);
-
-        var x = point.Position.X / rect.Width;
-        var y = point.Position.Y / rect.Height;
-        var locationF = new PointF((float) x, (float) y);
-
-        var shift = (args.KeyModifiers & KeyModifiers.Shift) != 0;
-        var alt = (args.KeyModifiers & KeyModifiers.Alt) != 0;
-        var ctrl = (args.KeyModifiers & KeyModifiers.Control) != 0;
-
-        var buttons = MouseButtons.None;
-        if (point.Properties.IsLeftButtonPressed)
-            buttons = MouseButtons.Left;
-        else if (point.Properties.IsMiddleButtonPressed)
-            buttons = MouseButtons.Center;
-        else if (point.Properties.IsRightButtonPressed)
-            buttons = MouseButtons.Right;
-
-        return new MouseEventArgs(locationF, location, shift, alt, ctrl) { TimeMS = timeMS, Button = buttons, Clicks = args.ClickCount };
-    }
-
-    private MouseEventArgs PointerReleasedMouseEvent(PointerReleasedEventArgs args, Rect rect, long timeMS)
-    {
-        var point = args.GetCurrentPoint(this);
-        var location = new System.Drawing.Point((int) point.Position.X, (int) point.Position.Y);
-
-        var x = point.Position.X / rect.Width;
-        var y = point.Position.Y / rect.Height;
-        var locationF = new PointF((float) x, (float) y);
-
-        var shift = (args.KeyModifiers & KeyModifiers.Shift) != 0;
-        var alt = (args.KeyModifiers & KeyModifiers.Alt) != 0;
-        var ctrl = (args.KeyModifiers & KeyModifiers.Control) != 0;
-
-        var buttons = MouseButtons.None;
-        if (point.Properties.IsLeftButtonPressed)
-            buttons = MouseButtons.Left;
-        else if (point.Properties.IsMiddleButtonPressed)
-            buttons = MouseButtons.Center;
-        else if (point.Properties.IsRightButtonPressed)
-            buttons = MouseButtons.Right;
-
-        return new MouseEventArgs(locationF, location, shift, alt, ctrl) { TimeMS = timeMS, Button = buttons };
-    }
-
-    private MouseEventArgs WheelMouseEvent(PointerWheelEventArgs args, Rect rect, long timeMS)
-    {
-        var point = args.GetCurrentPoint(this);
-        var location = new System.Drawing.Point((int) point.Position.X, (int) point.Position.Y);
-
-        var x = point.Position.X / rect.Width;
-        var y = point.Position.Y / rect.Height;
-        var locationF = new PointF((float) x, (float) y);
-
-        var shift = (args.KeyModifiers & KeyModifiers.Shift) != 0;
-        var alt = (args.KeyModifiers & KeyModifiers.Alt) != 0;
-        var ctrl = (args.KeyModifiers & KeyModifiers.Control) != 0;
-
-        return new MouseEventArgs(locationF, location, shift, alt, ctrl) { TimeMS = timeMS, Delta = (int) args.Delta.Y };
     }
 
     private MouseEventArgs TappedMouseEvent(TappedEventArgs args, int clickCount, Rect rect, long timeMS)
     {
+        // Get pointer position (normalized to current control size)
         var point = args.GetPosition(this);
-        var location = new System.Drawing.Point((int) point.X, (int) point.Y);
+        var location = new Point((int) point.X, (int) point.Y);
 
         var x = point.X / rect.Width;
         var y = point.Y / rect.Height;
         var locationF = new PointF((float) x, (float) y);
 
+        // Key modifiers
         var shift = (args.KeyModifiers & KeyModifiers.Shift) != 0;
         var alt = (args.KeyModifiers & KeyModifiers.Alt) != 0;
         var ctrl = (args.KeyModifiers & KeyModifiers.Control) != 0;
