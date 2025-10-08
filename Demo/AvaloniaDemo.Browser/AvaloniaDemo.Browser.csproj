@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Browser" Version="11.3.7" />
-    <PackageReference Include="ILNumerics.Core" Version="7.3.58" />
+    <PackageReference Include="ILNumerics.Core" Version="7.3.61" />
   </ItemGroup>
 
   <ItemGroup>

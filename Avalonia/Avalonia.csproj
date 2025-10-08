@@ -1,14 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">  
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>ILNumerics.Community.Avalonia</RootNamespace>
     <AssemblyName>ILNumerics.Community.Avalonia</AssemblyName>
     <AssemblyVersion>7.0.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.7" />
-    <PackageReference Include="ILNumerics.Core" Version="7.3.58" />
-    <PackageReference Include="ILNumerics.Drawing" Version="7.3.58" />
+    <PackageReference Include="ILNumerics.Core" Version="7.3.61" />
+    <PackageReference Include="ILNumerics.Drawing" Version="7.3.61" />
     <PackageReference Include="MinVer" Version="6.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

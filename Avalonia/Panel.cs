@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -9,7 +10,6 @@ using ILNumerics.Drawing;
 using Color = Avalonia.Media.Color;
 using Control = Avalonia.Controls.Control;
 using Platform_PixelFormat = Avalonia.Platform.PixelFormat;
-using Point = System.Drawing.Point;
 
 namespace ILNumerics.Community.Avalonia;
 
@@ -175,7 +175,10 @@ public sealed class Panel : Control, IDriver
     /// <inheritdoc />
     public int? PickAt(System.Drawing.Point screenCoords, long timeMs)
     {
-        return _driver.PickAt(screenCoords, timeMs);
+        // Consider high DPI: transform requested logical screen coords into actual back buffer pixel coords
+        var scaling = VisualRoot?.RenderScaling ?? 1.0;
+
+        return _driver.PickAt(new System.Drawing.Point((int) (screenCoords.X * scaling), (int) (screenCoords.Y * scaling)), timeMs);
     }
 
     /// <inheritdoc />
@@ -198,14 +201,12 @@ public sealed class Panel : Control, IDriver
 
     public override void Render(DrawingContext context)
     {
-        // Get current scaling factor and control size
-        var scaling = VisualRoot?.RenderScaling ?? 1.0;
-        var rectangle = new Rectangle(0, 0, (int) (scaling * Bounds.Width), (int) (scaling * Bounds.Height));
-        if (rectangle.Width <= 0 || rectangle.Height <= 0)
+        // Safeguard: do not render if back buffer size is empty
+        // (panel detached from tree or not yet properly initialized)
+        if (_driver.BackBuffer.Size.IsEmpty)
             return;
 
         // Render using 'GDI' driver (now also works on non-Windows platforms)
-        _driver.BackBuffer.Rectangle = rectangle;
         _driver.Configure();
         _driver.Render();
 
@@ -214,10 +215,11 @@ public sealed class Panel : Control, IDriver
         {
             Array<int> pixelBuffer = backBuffer.PixelBuffer;
             var pixelSize = new PixelSize(backBuffer.Size.Width, backBuffer.Size.Height);
+            var scaling = VisualRoot?.RenderScaling ?? 1.0;
             var dpi = new Vector(96.0 / scaling, 96.0 / scaling);
 
             var bitmap = new WriteableBitmap(Platform_PixelFormat.Rgb32, AlphaFormat.Premul, pixelBuffer.GetHostPointerForRead(), pixelSize, dpi, pixelSize.Width * 4);
-            context.DrawImage(bitmap, new Rect(0, 0, rectangle.Width, rectangle.Height));
+            context.DrawImage(bitmap, new Rect(0, 0, backBuffer.Size.Width, backBuffer.Size.Height));
         }
         else
             throw new InvalidOperationException($"BackBuffer is not of type {nameof(CommonBackBuffer)}.");
@@ -227,7 +229,21 @@ public sealed class Panel : Control, IDriver
 
     #endregion
 
-    #region PointerEventHandlers
+    #region Overrides
+
+    protected override void OnSizeChanged(SizeChangedEventArgs e)
+    {
+        // Consider high DPI: transform requested logical size into actual back buffer pixel size
+        var scaling = VisualRoot?.RenderScaling ?? 1.0;
+        var scaledSize = new System.Drawing.Size((int) (scaling * e.NewSize.Width), (int) (scaling * e.NewSize.Height));
+        if (scaledSize.Width <= 0 || scaledSize.Height <= 0)
+            return;
+
+        // Update driver size (also updates back buffer size)
+        _driver.Size = scaledSize;
+
+        base.OnSizeChanged(e);
+    }
 
     /// <inheritdoc />
     protected override void OnPointerEntered(PointerEventArgs e)
@@ -295,7 +311,7 @@ public sealed class Panel : Control, IDriver
     {
         // Get pointer position (normalized to current control size)
         var point = args.GetCurrentPoint(this);
-        var location = new Point((int) point.Position.X, (int) point.Position.Y);
+        var location = new System.Drawing.Point((int) point.Position.X, (int) point.Position.Y);
 
         var x = point.Position.X / rect.Width;
         var y = point.Position.Y / rect.Height;
@@ -339,7 +355,7 @@ public sealed class Panel : Control, IDriver
     {
         // Get pointer position (normalized to current control size)
         var point = args.GetPosition(this);
-        var location = new Point((int) point.X, (int) point.Y);
+        var location = new System.Drawing.Point((int) point.X, (int) point.Y);
 
         var x = point.X / rect.Width;
         var y = point.Y / rect.Height;

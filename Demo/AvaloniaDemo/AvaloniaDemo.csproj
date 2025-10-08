@@ -19,7 +19,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>none</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="ILNumerics.Core" Version="7.3.58" />
+    <PackageReference Include="ILNumerics.Core" Version="7.3.61" />
   </ItemGroup>
 
   <ItemGroup>
