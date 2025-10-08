@@ -197,7 +197,7 @@ public sealed class Panel : Control, IDriver
 
     #endregion
 
-    #region Render
+    #region Overrides
 
     public override void Render(DrawingContext context)
     {
@@ -227,10 +227,7 @@ public sealed class Panel : Control, IDriver
         base.Render(context);
     }
 
-    #endregion
-
-    #region Overrides
-
+    /// <inheritdoc />
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         // Consider high DPI: transform requested logical size into actual back buffer pixel size
