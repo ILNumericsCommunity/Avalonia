@@ -4,12 +4,13 @@
     <RootNamespace>ILNumerics.Community.Avalonia</RootNamespace>
     <AssemblyName>ILNumerics.Community.Avalonia</AssemblyName>
     <AssemblyVersion>7.0.0</AssemblyVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.7" />
-    <PackageReference Include="ILNumerics.Core" Version="7.3.61" />
-    <PackageReference Include="ILNumerics.Drawing" Version="7.3.61" />
-    <PackageReference Include="MinVer" Version="6.0.0">
+    <PackageReference Include="Avalonia" Version="11.3.11" />
+    <PackageReference Include="ILNumerics.Core" Version="7.4.16" />
+    <PackageReference Include="ILNumerics.Drawing" Version="7.4.16" />
+    <PackageReference Include="MinVer" Version="7.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

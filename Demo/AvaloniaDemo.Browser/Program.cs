@@ -3,17 +3,9 @@ using Avalonia;
 using Avalonia.Browser;
 using AvaloniaDemo;
 
-internal sealed partial class Program
+internal sealed class Program
 {
-    public static Task Main(string[] args)
-    {
-        return BuildAvaloniaApp()
-               .WithInterFont()
-               .StartBrowserAppAsync("out");
-    }
+    public static Task Main(string[] args) => BuildAvaloniaApp().WithInterFont().StartBrowserAppAsync("out");
 
-    public static AppBuilder BuildAvaloniaApp()
-    {
-        return AppBuilder.Configure<App>();
-    }
+    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>();
 }

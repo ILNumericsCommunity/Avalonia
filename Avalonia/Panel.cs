@@ -10,17 +10,25 @@ using ILNumerics.Drawing;
 using Color = Avalonia.Media.Color;
 using Control = Avalonia.Controls.Control;
 using Platform_PixelFormat = Avalonia.Platform.PixelFormat;
+using Point = System.Drawing.Point;
 
 namespace ILNumerics.Community.Avalonia;
 
 /// <summary>
-/// Avalonia rendering panel for ILNumerics (based on GDI driver)
+/// Avalonia rendering panel for ILNumerics (based on GDI driver).
 /// </summary>
-public sealed class Panel : Control, IDriver
+/// <remarks>
+/// This panel uses the GDI driver for rendering and supports all Avalonia platforms.
+/// GDI+ is explicitly disabled to ensure consistent rendering across platforms.
+/// </remarks>
+public sealed class Panel : Control, IDriver, IDisposable
 {
     private readonly Clock _clock;
     private readonly GDIDriver _driver;
     private readonly InputController _inputController;
+
+    private WriteableBitmap? _bitmap;
+    private bool _disposed;
 
     static Panel()
     {
@@ -43,68 +51,64 @@ public sealed class Panel : Control, IDriver
         DoubleTapped += (_, a) => OnDoubleTapped(a);
     }
 
+    /// <summary>Gets or sets the background color in Avalonia format.</summary>
+    /// <value>The background color as an Avalonia <see cref="Color" />.</value>
+    public Color Background
+    {
+        get => new(_driver.BackColor.A, _driver.BackColor.R, _driver.BackColor.G, _driver.BackColor.B);
+        set => _driver.BackColor = System.Drawing.Color.FromArgb(value.A, value.R, value.G, value.B);
+    }
+
+    #region IDisposable
+
+    /// <summary>
+    /// Releases all resources used by the <see cref="Panel" />.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _bitmap?.Dispose();
+        _bitmap = null;
+
+        _driver?.Dispose();
+
+        _disposed = true;
+    }
+
+    #endregion
+
     #region Implementation of IDriver
 
     /// <inheritdoc />
     public event EventHandler? FPSChanged;
 
-    private void OnFPSChanged()
-    {
-        FPSChanged?.Invoke(this, EventArgs.Empty);
-    }
-
     /// <inheritdoc />
     public event EventHandler<RenderEventArgs>? BeginRenderFrame;
-
-    private void OnBeginRenderFrame(RenderParameter parameter)
-    {
-        BeginRenderFrame?.Invoke(this, new RenderEventArgs(parameter));
-    }
 
     /// <inheritdoc />
     public event EventHandler<RenderEventArgs>? EndRenderFrame;
 
-    private void OnEndRenderFrame(RenderParameter parameter)
-    {
-        EndRenderFrame?.Invoke(this, new RenderEventArgs(parameter));
-    }
-
     /// <inheritdoc />
     public event EventHandler<RenderErrorEventArgs>? RenderingFailed;
 
-    private void OnRenderingFailed(Exception exc, bool timeout = false)
-    {
-        RenderingFailed?.Invoke(this, new RenderErrorEventArgs { Exception = exc, Timeout = timeout });
-    }
-
     /// <inheritdoc />
     [Obsolete("Use Scene.First<Camera>() instead!")]
-    public Camera Camera
-    {
-        get { return _driver.Camera; }
-    }
+    public Camera Camera => _driver.Camera;
 
     /// <inheritdoc />
     public System.Drawing.Color BackColor
     {
-        get { return _driver.BackColor; }
-        set { _driver.BackColor = value; }
-    }
-
-    /// <summary>Set and gets the background color in Avalonia.</summary>
-    public Color Background
-    {
-        get { return new Color(_driver.BackColor.A, _driver.BackColor.R, _driver.BackColor.G, _driver.BackColor.B); }
-        set { _driver.BackColor = System.Drawing.Color.FromArgb(value.A, value.R, value.G, value.B); }
+        get => _driver.BackColor;
+        set => _driver.BackColor = value;
     }
 
     /// <inheritdoc />
-    public int FPS
-    {
-        get { return _driver.FPS; }
-    }
+    public int FPS => _driver.FPS;
 
     /// <inheritdoc />
+    /// <remarks>This method triggers an Avalonia visual invalidation to request a re-render.</remarks>
     public void Render(long timeMs)
     {
         InvalidateVisual();
@@ -119,86 +123,86 @@ public sealed class Panel : Control, IDriver
     /// <inheritdoc />
     public Scene Scene
     {
-        get { return _driver.Scene; }
-        set { _driver.Scene = value; }
+        get => _driver.Scene;
+        set => _driver.Scene = value;
     }
 
     /// <inheritdoc />
-    public Scene LocalScene
-    {
-        get { return _driver.LocalScene; }
-    }
+    public Scene LocalScene => _driver.LocalScene;
 
     /// <inheritdoc />
-    public Group SceneSyncRoot
-    {
-        get { return _driver.SceneSyncRoot; }
-    }
+    public Group SceneSyncRoot => _driver.SceneSyncRoot;
 
     /// <inheritdoc />
-    public Group LocalSceneSyncRoot
-    {
-        get { return _driver.LocalSceneSyncRoot; }
-    }
+    public Group LocalSceneSyncRoot => _driver.LocalSceneSyncRoot;
 
     /// <inheritdoc />
     public RectangleF Rectangle
     {
-        get { return _driver.Rectangle; }
-        set { _driver.Rectangle = value; }
+        get => _driver.Rectangle;
+        set => _driver.Rectangle = value;
     }
 
     /// <inheritdoc />
-    public bool Supports(Capabilities capability)
-    {
-        return _driver.Supports(capability);
-    }
+    public bool Supports(Capabilities capability) => _driver.Supports(capability);
 
     /// <inheritdoc />
-    public Matrix4 ViewTransform
-    {
-        get { return _driver.ViewTransform; }
-    }
+    public Matrix4 ViewTransform => _driver.ViewTransform;
 
     /// <inheritdoc />
-    public RendererTypes RendererType
-    {
-        get { return RendererTypes.GDI; }
-    }
+    public RendererTypes RendererType => RendererTypes.GDI;
 
     /// <inheritdoc />
-    public Scene GetCurrentScene(long ms = 0)
-    {
-        return _driver.GetCurrentScene(ms);
-    }
+    public Scene GetCurrentScene(long ms = 0) => _driver.GetCurrentScene(ms);
 
     /// <inheritdoc />
-    public int? PickAt(System.Drawing.Point screenCoords, long timeMs)
+    public int? PickAt(Point screenCoords, long timeMs)
     {
         // Consider high DPI: transform requested logical screen coords into actual back buffer pixel coords
         var scaling = VisualRoot?.RenderScaling ?? 1.0;
 
-        return _driver.PickAt(new System.Drawing.Point((int) (screenCoords.X * scaling), (int) (screenCoords.Y * scaling)), timeMs);
+        return _driver.PickAt(new Point((int) (screenCoords.X * scaling), (int) (screenCoords.Y * scaling)), timeMs);
     }
 
     /// <inheritdoc />
     public System.Drawing.Size Size
     {
-        get { return _driver.Size; }
-        set { _driver.Size = value; }
+        get => _driver.Size;
+        set => _driver.Size = value;
     }
 
     /// <inheritdoc />
     public uint Timeout
     {
-        get { return _driver.Timeout; }
-        set { _driver.Timeout = value; }
+        get => _driver.Timeout;
+        set => _driver.Timeout = value;
     }
 
     #endregion
 
+    private void OnFPSChanged()
+    {
+        FPSChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnBeginRenderFrame(RenderParameter parameter)
+    {
+        BeginRenderFrame?.Invoke(this, new RenderEventArgs(parameter));
+    }
+
+    private void OnEndRenderFrame(RenderParameter parameter)
+    {
+        EndRenderFrame?.Invoke(this, new RenderEventArgs(parameter));
+    }
+
+    private void OnRenderingFailed(Exception exc, bool timeout = false)
+    {
+        RenderingFailed?.Invoke(this, new RenderErrorEventArgs { Exception = exc, Timeout = timeout });
+    }
+
     #region Overrides
 
+    /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
         // Safeguard: do not render if back buffer size is empty
@@ -218,8 +222,25 @@ public sealed class Panel : Control, IDriver
             var scaling = VisualRoot?.RenderScaling ?? 1.0;
             var dpi = new Vector(96.0 / scaling, 96.0 / scaling);
 
-            var bitmap = new WriteableBitmap(Platform_PixelFormat.Rgb32, AlphaFormat.Premul, pixelBuffer.GetHostPointerForRead(), pixelSize, dpi, pixelSize.Width * 4);
-            context.DrawImage(bitmap, new Rect(0, 0, backBuffer.Size.Width, backBuffer.Size.Height));
+            // Recreate bitmap only when size changes to avoid allocations per frame
+            if (_bitmap == null || _bitmap.PixelSize != pixelSize)
+            {
+                _bitmap?.Dispose();
+                _bitmap = new WriteableBitmap(pixelSize, dpi, Platform_PixelFormat.Rgba8888, AlphaFormat.Premul);
+            }
+
+            // Copy pixel data to the bitmap
+            using (var frameBuffer = _bitmap.Lock())
+            {
+                var byteCount = pixelSize.Width * pixelSize.Height * 4;
+                var sourcePtr = pixelBuffer.GetHostPointerForRead();
+                unsafe
+                {
+                    Buffer.MemoryCopy(sourcePtr.ToPointer(), frameBuffer.Address.ToPointer(), byteCount, byteCount);
+                }
+            }
+
+            context.DrawImage(_bitmap, new Rect(0, 0, backBuffer.Size.Width, backBuffer.Size.Height));
         }
         else
             throw new InvalidOperationException($"BackBuffer is not of type {nameof(CommonBackBuffer)}.");
@@ -308,7 +329,7 @@ public sealed class Panel : Control, IDriver
     {
         // Get pointer position (normalized to current control size)
         var point = args.GetCurrentPoint(this);
-        var location = new System.Drawing.Point((int) point.Position.X, (int) point.Position.Y);
+        var location = new Point((int) point.Position.X, (int) point.Position.Y);
 
         var x = point.Position.X / rect.Width;
         var y = point.Position.Y / rect.Height;
@@ -352,7 +373,7 @@ public sealed class Panel : Control, IDriver
     {
         // Get pointer position (normalized to current control size)
         var point = args.GetPosition(this);
-        var location = new System.Drawing.Point((int) point.X, (int) point.Y);
+        var location = new Point((int) point.X, (int) point.Y);
 
         var x = point.X / rect.Width;
         var y = point.Y / rect.Height;

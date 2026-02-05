@@ -70,8 +70,7 @@ public partial class MainView : UserControl
                         new ContourPlot(terrainData, create3D: true,
                                         levels: new List<ContourLevel>
                                         {
-                                            new() { Text = "Coast", Value = 5, LineWidth = 3 },
-                                            new() { Text = "Plateau", Value = 1000, LineWidth = 3 },
+                                            new() { Text = "Coast", Value = 5, LineWidth = 3 }, new() { Text = "Plateau", Value = 1000, LineWidth = 3 },
                                             new() { Text = "Basis 1", Value = 1500, LineWidth = 3, LineStyle = DashStyle.PointDash },
                                             new() { Text = "High", Value = 3000, LineWidth = 3 },
                                             new() { Text = "Rescue", Value = 4200, LineWidth = 3, LineStyle = DashStyle.Dotted },
@@ -79,12 +78,8 @@ public partial class MainView : UserControl
                                         }),
                         new Surface(terrainData)
                         {
-                            Wireframe = { Visible = false },
-                            UseLighting = true,
-                            Children =
-                            {
-                                new Legend { Location = new PointF(1f, .1f) }, new Colorbar { Location = new PointF(1, .4f), Anchor = new PointF(1, 0) }
-                            }
+                            Wireframe = { Visible = false }, UseLighting = true,
+                            Children = { new Legend { Location = new PointF(1f, .1f) }, new Colorbar { Location = new PointF(1, .4f), Anchor = new PointF(1, 0) } }
                         }
                     }
                 };
