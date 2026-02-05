@@ -9,8 +9,8 @@ Note: This package currently uses a software renderer on all platforms. It gener
 
 ## Compatibility
 
-- .NET: targets `.NET 9`.
-- ILNumerics: `ILNumerics 7.3+`
+- .NET: targets `.NET 8`.
+- ILNumerics: `ILNumerics 7.4+`
 - Avalonia: compatible with `Avalonia 11`.
 
 > Note: Desktop platforms (Windows, Linux, macOS) are working well. There are currently some outstanding issues on mobile platforms; please refer to the issue tracker for details and status updates.
