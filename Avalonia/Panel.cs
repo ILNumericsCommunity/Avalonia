@@ -226,7 +226,7 @@ public sealed class Panel : Control, IDriver, IDisposable
             if (_bitmap == null || _bitmap.PixelSize != pixelSize)
             {
                 _bitmap?.Dispose();
-                _bitmap = new WriteableBitmap(pixelSize, dpi, Platform_PixelFormat.Rgba8888, AlphaFormat.Premul);
+                _bitmap = new WriteableBitmap(pixelSize, dpi, Platform_PixelFormat.Bgra8888, AlphaFormat.Premul);
             }
 
             // Copy pixel data to the bitmap
