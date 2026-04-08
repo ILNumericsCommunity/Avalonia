@@ -47,8 +47,6 @@ public sealed class Panel : Control, IDriver, IDisposable
         _driver.RenderingFailed += (_, a) => OnRenderingFailed(a.Exception, a.Timeout);
 
         _inputController = new InputController(this);
-        Tapped += (_, a) => OnTapped(a);
-        DoubleTapped += (_, a) => OnDoubleTapped(a);
     }
 
     /// <summary>Gets or sets the background color in Avalonia format.</summary>
@@ -159,7 +157,7 @@ public sealed class Panel : Control, IDriver, IDisposable
     public int? PickAt(Point screenCoords, long timeMs)
     {
         // Consider high DPI: transform requested logical screen coords into actual back buffer pixel coords
-        var scaling = VisualRoot?.RenderScaling ?? 1.0;
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
 
         return _driver.PickAt(new Point((int) (screenCoords.X * scaling), (int) (screenCoords.Y * scaling)), timeMs);
     }
@@ -219,7 +217,7 @@ public sealed class Panel : Control, IDriver, IDisposable
         {
             Array<int> pixelBuffer = backBuffer.PixelBuffer;
             var pixelSize = new PixelSize(backBuffer.Size.Width, backBuffer.Size.Height);
-            var scaling = VisualRoot?.RenderScaling ?? 1.0;
+            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
             var dpi = new Vector(96.0 / scaling, 96.0 / scaling);
 
             // Recreate bitmap only when size changes to avoid allocations per frame
@@ -252,7 +250,7 @@ public sealed class Panel : Control, IDriver, IDisposable
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         // Consider high DPI: transform requested logical size into actual back buffer pixel size
-        var scaling = VisualRoot?.RenderScaling ?? 1.0;
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         var scaledSize = new System.Drawing.Size((int) (scaling * e.NewSize.Width), (int) (scaling * e.NewSize.Height));
         if (scaledSize.Width <= 0 || scaledSize.Height <= 0)
             return;
@@ -311,14 +309,20 @@ public sealed class Panel : Control, IDriver, IDisposable
         base.OnPointerWheelChanged(e);
     }
 
-    private void OnTapped(TappedEventArgs e)
+    /// <inheritdoc />
+    protected override void OnTapped(TappedEventArgs e)
     {
         _inputController.OnMouseClick(TappedMouseEvent(e, 1, Bounds, _clock.TimeMilliseconds));
+
+        base.OnTapped(e);
     }
 
-    private void OnDoubleTapped(TappedEventArgs e)
+    /// <inheritdoc />
+    protected override void OnDoubleTapped(TappedEventArgs e)
     {
         _inputController.OnMouseDoubleClick(TappedMouseEvent(e, 2, Bounds, _clock.TimeMilliseconds));
+
+        base.OnDoubleTapped(e);
     }
 
     #endregion

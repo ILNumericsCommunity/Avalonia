@@ -7,7 +7,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.11" />
+    <PackageReference Include="Avalonia" Version="12.0.0" />
     <PackageReference Include="ILNumerics.Core" Version="7.4.16" />
     <PackageReference Include="ILNumerics.Drawing" Version="7.4.16" />
     <PackageReference Include="MinVer" Version="7.0.0">
