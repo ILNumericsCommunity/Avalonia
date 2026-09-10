@@ -29,6 +29,8 @@ public sealed class Panel : Control, IDriver, IDisposable
 
     private WriteableBitmap? _bitmap;
     private bool _disposed;
+    private TopLevel? _topLevel;
+    private double _renderScaling = 1;
 
     static Panel()
     {
@@ -36,13 +38,18 @@ public sealed class Panel : Control, IDriver, IDisposable
         GDIDriver.IsGDIPlusSupported = false;
     }
 
+    /// <summary>Creates a software-rendered, per-monitor-DPI-aware panel.</summary>
     public Panel()
     {
         _clock = new Clock { Running = false };
 
         _driver = new GDIDriver(new CommonBackBuffer());
         _driver.FPSChanged += (_, _) => OnFPSChanged();
-        _driver.BeginRenderFrame += (_, a) => OnBeginRenderFrame(a.Parameter);
+        _driver.BeginRenderFrame += (_, a) =>
+        {
+            a.Parameter.DPIScaling = _renderScaling;
+            OnBeginRenderFrame(a.Parameter);
+        };
         _driver.EndRenderFrame += (_, a) => OnEndRenderFrame(a.Parameter);
         _driver.RenderingFailed += (_, a) => OnRenderingFailed(a.Exception, a.Timeout);
 
@@ -67,6 +74,8 @@ public sealed class Panel : Control, IDriver, IDisposable
         if (_disposed)
             return;
 
+        if (_topLevel != null) _topLevel.ScalingChanged -= OnScalingChanged;
+        _topLevel = null;
         _bitmap?.Dispose();
         _bitmap = null;
 
@@ -203,6 +212,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     public override void Render(DrawingContext context)
     {
+        if (_disposed) return;
+        UpdateRenderSize();
         // Safeguard: do not render if back buffer size is empty
         // (panel detached from tree or not yet properly initialized)
         if (_driver.BackBuffer.Size.IsEmpty)
@@ -218,10 +229,10 @@ public sealed class Panel : Control, IDriver, IDisposable
             Array<int> pixelBuffer = backBuffer.PixelBuffer;
             var pixelSize = new PixelSize(backBuffer.Size.Width, backBuffer.Size.Height);
             var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-            var dpi = new Vector(96.0 / scaling, 96.0 / scaling);
+            var dpi = new Vector(96.0 * scaling, 96.0 * scaling);
 
-            // Recreate bitmap only when size changes to avoid allocations per frame
-            if (_bitmap == null || _bitmap.PixelSize != pixelSize)
+            // A monitor change can alter DPI even when the rounded pixel dimensions match.
+            if (_bitmap == null || _bitmap.PixelSize != pixelSize || _bitmap.Dpi != dpi)
             {
                 _bitmap?.Dispose();
                 _bitmap = new WriteableBitmap(pixelSize, dpi, Platform_PixelFormat.Bgra8888, AlphaFormat.Premul);
@@ -238,7 +249,8 @@ public sealed class Panel : Control, IDriver, IDisposable
                 }
             }
 
-            context.DrawImage(_bitmap, new Rect(0, 0, backBuffer.Size.Width, backBuffer.Size.Height));
+            // Source coordinates are physical pixels; destination coordinates are logical units.
+            context.DrawImage(_bitmap, new Rect(0, 0, pixelSize.Width, pixelSize.Height), new Rect(0, 0, Bounds.Width, Bounds.Height));
         }
         else
             throw new InvalidOperationException($"BackBuffer is not of type {nameof(CommonBackBuffer)}.");
@@ -249,16 +261,41 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
-        // Consider high DPI: transform requested logical size into actual back buffer pixel size
-        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var scaledSize = new System.Drawing.Size((int) (scaling * e.NewSize.Width), (int) (scaling * e.NewSize.Height));
-        if (scaledSize.Width <= 0 || scaledSize.Height <= 0)
-            return;
-
-        // Update driver size (also updates back buffer size)
-        _driver.Size = scaledSize;
-
         base.OnSizeChanged(e);
+        UpdateRenderSize();
+    }
+
+    /// <inheritdoc />
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _topLevel = TopLevel.GetTopLevel(this);
+        if (_topLevel != null) _topLevel.ScalingChanged += OnScalingChanged;
+        UpdateRenderSize();
+    }
+
+    /// <inheritdoc />
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    {
+        if (_topLevel != null) _topLevel.ScalingChanged -= OnScalingChanged;
+        _topLevel = null;
+        base.OnDetachedFromVisualTree(e);
+    }
+
+    private void OnScalingChanged(object? sender, EventArgs e)
+    {
+        UpdateRenderSize();
+        InvalidateVisual();
+    }
+
+    private void UpdateRenderSize()
+    {
+        _renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+        if (_disposed || Bounds.Width <= 0 || Bounds.Height <= 0) return;
+        var size = new System.Drawing.Size(
+            Math.Max(1, (int)Math.Ceiling(Bounds.Width * _renderScaling)),
+            Math.Max(1, (int)Math.Ceiling(Bounds.Height * _renderScaling)));
+        if (_driver.Size != size) _driver.Size = size;
     }
 
     /// <inheritdoc />

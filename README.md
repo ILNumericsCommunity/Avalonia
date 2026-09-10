@@ -50,3 +50,25 @@ This repository includes demo projects under the `Demo/` folder showcasing usage
 ### License
 
 ILNumerics.Community.Avalonia is licensed under the terms of the MIT license (<http://opensource.org/licenses/MIT>, see LICENSE.txt).
+
+## Per-monitor display scaling
+
+The panel passes `TopLevel.RenderScaling` to each ILNumerics frame's `DPIScaling`.
+Native point sizes remain unchanged; the native font renderer converts points to
+pixels. Backbuffers use ceiling-rounded physical pixel dimensions, bitmap DPI is
+`96 * scale`, and the full pixel source rectangle is drawn into logical panel bounds.
+The explicit source rectangle prevents cropping of DPI-tagged images.
+Monitor scaling changes invalidate rendering even without a logical resize;
+subscriptions are removed on detach/disposal. No PlotDX/custom text renderer is
+needed for this behavior.
+
+Independent regression check (.NET 10):
+
+```console
+dotnet run --project Tests/Avalonia.DpiChecks.csproj -c Release -p:GeneratePackageOnBuild=false -p:ILNAcceleratorEnabled=false
+```
+
+This uses Avalonia Headless with Skia. It simulates the native scaling callback at
+100%, 125%, 150%, 200% and back to 100%, verifies far-corner geometry survives
+composition, and checks native font sizes and detach behavior. The test-only
+reflection call is isolated to Avalonia 12's scaling callback.
