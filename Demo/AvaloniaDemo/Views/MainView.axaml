@@ -17,7 +17,15 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+            <ComboBox x:Name="rendererComboBox" Width="150" Margin="10,0,0,0" SelectedIndex="0"
+                      SelectionChanged="RendererComboBox_OnSelectionChanged">
+                <ComboBoxItem Content="UI thread" />
+                <ComboBoxItem Content="Background" />
+            </ComboBox>
+            <TextBlock x:Name="rendererStatus" Margin="10,0,0,0" VerticalAlignment="Center" />
         </StackPanel>
-        <ilnAvalonia:Panel x:Name="ilPanel" Background="White" />
+        <ContentControl x:Name="rendererHost">
+            <ilnAvalonia:Panel x:Name="ilPanel" Background="White" />
+        </ContentControl>
     </DockPanel>
 </UserControl>

@@ -1,7 +1,8 @@
 ﻿using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Browser;
-using AvaloniaDemo;
+
+namespace AvaloniaDemo.Browser;
 
 internal sealed class Program
 {

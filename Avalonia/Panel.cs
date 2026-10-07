@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using Avalonia;
 using Avalonia.Controls;
@@ -6,6 +7,8 @@ using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
+using ILNumerics.Community.Avalonia.Render;
 using ILNumerics.Drawing;
 using Color = Avalonia.Media.Color;
 using Control = Avalonia.Controls.Control;
@@ -19,9 +22,18 @@ namespace ILNumerics.Community.Avalonia;
 /// </summary>
 /// <remarks>
 /// This panel uses the GDI driver for rendering and supports all Avalonia platforms.
-/// GDI+ is explicitly disabled to ensure consistent rendering across platforms.
+/// GDI+ is explicitly disabled to ensure consistent rendering across platforms (incl. Windows).
+/// <para>
+/// UseBackgroundRendering selects the owner thread at construction. UI mode supports synchronous IDriver access;
+/// the global Scene remains application-facing in both modes; background rendering owns its synchronized copy.
+/// </para>
+/// <para>
+/// The <see cref="BeginRenderFrame" />, <see cref="EndRenderFrame" />, <see cref="FPSChanged" />
+/// events run on the selected render owner (UI or worker). Worker callbacks must not access UI objects or block on UI dispatch.
+/// RenderingFailed, FPSChanged and FramePresented notifications remain on the UI thread in both modes.
+/// </para>
 /// </remarks>
-public sealed class Panel : Control, IDriver, IDisposable
+public sealed partial class Panel : Control, IDriver, IDisposable, IAsyncDisposable
 {
     private readonly Clock _clock;
     private readonly GDIDriver _driver;
@@ -31,6 +43,9 @@ public sealed class Panel : Control, IDriver, IDisposable
     private bool _disposed;
     private TopLevel? _topLevel;
     private double _renderScaling = 1;
+
+    // Defer disposal requested by a render callback until the driver has returned.
+    private bool _rendering;
 
     static Panel()
     {
@@ -42,6 +57,15 @@ public sealed class Panel : Control, IDriver, IDisposable
     public Panel()
     {
         _clock = new Clock { Running = false };
+
+        IsBackgroundRendering = UseBackgroundRendering && !OperatingSystem.IsBrowser();
+        if (IsBackgroundRendering)
+        {
+            _driver = null!;
+            _inputController = null!;
+            InitializeBackground();
+            return;
+        }
 
         _driver = new GDIDriver(new CommonBackBuffer());
         _driver.FPSChanged += (_, _) => OnFPSChanged();
@@ -60,8 +84,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <value>The background color as an Avalonia <see cref="Color" />.</value>
     public Color Background
     {
-        get => new(_driver.BackColor.A, _driver.BackColor.R, _driver.BackColor.G, _driver.BackColor.B);
-        set => _driver.BackColor = System.Drawing.Color.FromArgb(value.A, value.R, value.G, value.B);
+        get => new Color(BackColor.A, BackColor.R, BackColor.G, BackColor.B);
+        set => BackColor = System.Drawing.Color.FromArgb(value.A, value.R, value.G, value.B);
     }
 
     #region IDisposable
@@ -71,118 +95,203 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// </summary>
     public void Dispose()
     {
+        VerifyAccess();
         if (_disposed)
             return;
 
-        if (_topLevel != null) _topLevel.ScalingChanged -= OnScalingChanged;
+        _disposed = true;
+        if (IsBackgroundRendering)
+        {
+            DisposeBackground();
+            return;
+        }
+        if (_topLevel != null)
+            _topLevel.ScalingChanged -= OnScalingChanged;
         _topLevel = null;
+
+        if (!_rendering)
+            DisposeResources();
+    }
+
+    private void DisposeResources()
+    {
         _bitmap?.Dispose();
         _bitmap = null;
-
-        _driver?.Dispose();
-
-        _disposed = true;
+        _driver.Dispose();
     }
 
     #endregion
 
     #region Implementation of IDriver
 
-    /// <inheritdoc />
+    /// <summary>Raised synchronously on the UI thread when the frames-per-second counter changes.</summary>
     public event EventHandler? FPSChanged;
 
-    /// <inheritdoc />
+    /// <summary>Raised on the render owner thread before a frame is rasterized.</summary>
     public event EventHandler<RenderEventArgs>? BeginRenderFrame;
 
-    /// <inheritdoc />
+    /// <summary>Raised on the render owner thread after a frame is rasterized.</summary>
     public event EventHandler<RenderEventArgs>? EndRenderFrame;
 
-    /// <inheritdoc />
+    /// <summary>Raised synchronously on the UI thread when rendering fails.</summary>
     public event EventHandler<RenderErrorEventArgs>? RenderingFailed;
 
     /// <inheritdoc />
     [Obsolete("Use Scene.First<Camera>() instead!")]
-    public Camera Camera => _driver.Camera;
+    public Camera Camera => Driver.Camera;
 
     /// <inheritdoc />
     public System.Drawing.Color BackColor
     {
-        get => _driver.BackColor;
-        set => _driver.BackColor = value;
+        get => IsBackgroundRendering ? _backgroundColor : _driver.BackColor;
+        set
+        {
+            VerifyAccess();
+            if (IsBackgroundRendering)
+            {
+                _backgroundColor = value;
+                QueueBackgroundUpdate(driver => driver.BackColor = value);
+            }
+            else
+                _driver.BackColor = value;
+        }
     }
 
     /// <inheritdoc />
-    public int FPS => _driver.FPS;
+    public int FPS => IsBackgroundRendering ? _backgroundFps : _driver.FPS;
 
     /// <inheritdoc />
-    /// <remarks>This method triggers an Avalonia visual invalidation to request a re-render.</remarks>
+    /// <remarks>Invalidates the visual to request a UI-thread render pass.</remarks>
     public void Render(long timeMs)
     {
-        InvalidateVisual();
+        VerifyAccess();
+        if (IsBackgroundRendering)
+        {
+            RequestRender();
+            return;
+        }
+        if (!_disposed)
+            InvalidateVisual();
     }
 
     /// <inheritdoc />
     public void Configure()
     {
-        _driver.Configure();
+        VerifyAccess();
+        if (!_disposed)
+            Scene.Configure();
     }
 
     /// <inheritdoc />
     public Scene Scene
     {
-        get => _driver.Scene;
-        set => _driver.Scene = value;
+        get
+        {
+            VerifyAccess();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return IsBackgroundRendering ? _globalScene! : _driver.Scene;
+        }
+        set
+        {
+            VerifyAccess();
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            ArgumentNullException.ThrowIfNull(value);
+            if (IsBackgroundRendering)
+                AssignGlobalScene(value);
+            else
+            {
+                if (!ReferenceEquals(_driver.Scene, value))
+                    _sceneRevision++;
+                _driver.Scene = value;
+            }
+        }
     }
 
     /// <inheritdoc />
-    public Scene LocalScene => _driver.LocalScene;
+    public Scene LocalScene => Driver.LocalScene;
 
     /// <inheritdoc />
-    public Group SceneSyncRoot => _driver.SceneSyncRoot;
+    public Group SceneSyncRoot => Driver.SceneSyncRoot;
 
     /// <inheritdoc />
-    public Group LocalSceneSyncRoot => _driver.LocalSceneSyncRoot;
+    public Group LocalSceneSyncRoot => Driver.LocalSceneSyncRoot;
 
     /// <inheritdoc />
     public RectangleF Rectangle
     {
-        get => _driver.Rectangle;
-        set => _driver.Rectangle = value;
+        get => Driver.Rectangle;
+        set => Driver.Rectangle = value;
     }
 
     /// <inheritdoc />
-    public bool Supports(Capabilities capability) => _driver.Supports(capability);
+    public bool Supports(Capabilities capability) => Driver.Supports(capability);
 
     /// <inheritdoc />
-    public Matrix4 ViewTransform => _driver.ViewTransform;
+    public Matrix4 ViewTransform => Driver.ViewTransform;
 
     /// <inheritdoc />
     public RendererTypes RendererType => RendererTypes.GDI;
 
     /// <inheritdoc />
-    public Scene GetCurrentScene(long ms = 0) => _driver.GetCurrentScene(ms);
+    public Scene GetCurrentScene(long ms = 0) => Driver.GetCurrentScene(ms);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Background mode queues picking to the owner and synchronously waits, including preceding driver work.
+    /// Owner-thread calls execute directly; reentry from an active render callback is rejected.
+    /// Worker callbacks must never synchronously wait for UI dispatch. Use PickAsync to avoid blocking UI callers.
+    /// </remarks>
     public int? PickAt(Point screenCoords, long timeMs)
     {
-        // Consider high DPI: transform requested logical screen coords into actual back buffer pixel coords
-        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        if (IsBackgroundRendering)
+        {
+            if (_worker!.CheckAccess())
+                return _worker.PickAt(screenCoords, timeMs);
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                if (_disposed)
+                    return null;
+                return _worker.PickAt(screenCoords, timeMs);
+            }
+            VerifyAccess();
+            if (_disposed || Bounds.Width <= 0 || Bounds.Height <= 0)
+                return null;
+            UpdateBackgroundGeometry();
+            if (!_backgroundGeometry.Active)
+                return null;
+            return _worker.PickAt(screenCoords, timeMs, _backgroundGeometry.Scaling);
+        }
+        VerifyAccess();
+        if (_disposed || _rendering || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return null;
 
-        return _driver.PickAt(new Point((int) (screenCoords.X * scaling), (int) (screenCoords.Y * scaling)), timeMs);
+        UpdateRenderSize();
+        _rendering = true;
+        try
+        {
+            // Convert logical input coordinates to physical backbuffer pixels.
+            return _driver.PickAt(new Point((int) (screenCoords.X * _renderScaling), (int) (screenCoords.Y * _renderScaling)), timeMs);
+        }
+        finally
+        {
+            _rendering = false;
+            if (_disposed)
+                DisposeResources();
+        }
     }
 
     /// <inheritdoc />
     public System.Drawing.Size Size
     {
-        get => _driver.Size;
-        set => _driver.Size = value;
+        get => Driver.Size;
+        set => Driver.Size = value;
     }
 
     /// <inheritdoc />
     public uint Timeout
     {
-        get => _driver.Timeout;
-        set => _driver.Timeout = value;
+        get => Driver.Timeout;
+        set => Driver.Timeout = value;
     }
 
     #endregion
@@ -207,53 +316,104 @@ public sealed class Panel : Control, IDriver, IDisposable
         RenderingFailed?.Invoke(this, new RenderErrorEventArgs { Exception = exc, Timeout = timeout });
     }
 
+    #region RenderingPipeline
+
+    /// <summary>
+    /// Copies the current ILNumerics backbuffer pixels into the presentation bitmap.
+    /// Must be called on the UI thread after rasterization completes.
+    /// </summary>
+    private WriteableBitmap CopyBackBufferToBitmap(Vector dpi)
+    {
+        if (_driver.BackBuffer is not CommonBackBuffer backBuffer)
+            throw new InvalidOperationException($"BackBuffer is not of type {nameof(CommonBackBuffer)}.");
+
+        // PixelBuffer returns a RetArray; release our local wrapper after the copy.
+        using Array<int> pixelBuffer = backBuffer.PixelBuffer;
+        var pixelSize = new PixelSize(backBuffer.Size.Width, backBuffer.Size.Height);
+
+        // A monitor change can alter DPI even when the rounded pixel dimensions match.
+        if (_bitmap == null || _bitmap.PixelSize != pixelSize || _bitmap.Dpi != dpi)
+        {
+            var bitmap = new WriteableBitmap(pixelSize, dpi, Platform_PixelFormat.Bgra8888, AlphaFormat.Premul);
+            _bitmap?.Dispose();
+            _bitmap = bitmap;
+        }
+
+        // Copy pixel data to the bitmap
+        using (var frameBuffer = _bitmap.Lock())
+        {
+            var rowBytes = checked(pixelSize.Width * sizeof(int));
+            if (frameBuffer.RowBytes < rowBytes || pixelBuffer.S.NumberOfElements < (long) pixelSize.Width * pixelSize.Height)
+                throw new InvalidOperationException("The pixel buffer does not match the frame dimensions.");
+
+            var sourcePtr = pixelBuffer.GetHostPointerForRead();
+            if (sourcePtr == IntPtr.Zero)
+                throw new InvalidOperationException("The pixel buffer is not available in host memory.");
+
+            unsafe
+            {
+                if (frameBuffer.RowBytes == rowBytes)
+                {
+                    var byteCount = checked((long) rowBytes * pixelSize.Height);
+                    Buffer.MemoryCopy(sourcePtr.ToPointer(), frameBuffer.Address.ToPointer(), byteCount, byteCount);
+                }
+                else
+                {
+                    // Preserve destination padding when the platform framebuffer is not tightly packed.
+                    for (var row = 0; row < pixelSize.Height; row++)
+                    {
+                        var source = (byte*) sourcePtr + ((long) row * rowBytes);
+                        var destination = (byte*) frameBuffer.Address + ((long) row * frameBuffer.RowBytes);
+                        Buffer.MemoryCopy(source, destination, frameBuffer.RowBytes, rowBytes);
+                    }
+                }
+            }
+            GC.KeepAlive(pixelBuffer);
+        }
+        return _bitmap;
+    }
+
+    #endregion
+
     #region Overrides
 
     /// <inheritdoc />
+    /// <remarks>Rasterizes and copies the current scene synchronously on the UI thread.</remarks>
     public override void Render(DrawingContext context)
     {
-        if (_disposed) return;
-        UpdateRenderSize();
-        // Safeguard: do not render if back buffer size is empty
-        // (panel detached from tree or not yet properly initialized)
-        if (_driver.BackBuffer.Size.IsEmpty)
-            return;
-
-        // Render using 'GDI' driver (now also works on non-Windows platforms)
-        _driver.Configure();
-        _driver.Render();
-
-        // Copy pixel buffer to Avalonia WriteableBitmap and draw it
-        if (_driver.BackBuffer is CommonBackBuffer backBuffer)
+        VerifyAccess();
+        if (IsBackgroundRendering)
         {
-            Array<int> pixelBuffer = backBuffer.PixelBuffer;
-            var pixelSize = new PixelSize(backBuffer.Size.Width, backBuffer.Size.Height);
-            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-            var dpi = new Vector(96.0 * scaling, 96.0 * scaling);
+            RenderBackground(context);
+            return;
+        }
+        if (_disposed || _rendering || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+        UpdateRenderSize();
 
-            // A monitor change can alter DPI even when the rounded pixel dimensions match.
-            if (_bitmap == null || _bitmap.PixelSize != pixelSize || _bitmap.Dpi != dpi)
-            {
-                _bitmap?.Dispose();
-                _bitmap = new WriteableBitmap(pixelSize, dpi, Platform_PixelFormat.Bgra8888, AlphaFormat.Premul);
-            }
+        _rendering = true;
+        try
+        {
+            _driver.Configure();
+            var started = Stopwatch.GetTimestamp();
+            _driver.Render();
+            if (_disposed)
+                return;
 
-            // Copy pixel data to the bitmap
-            using (var frameBuffer = _bitmap.Lock())
-            {
-                var byteCount = pixelSize.Width * pixelSize.Height * 4;
-                var sourcePtr = pixelBuffer.GetHostPointerForRead();
-                unsafe
-                {
-                    Buffer.MemoryCopy(sourcePtr.ToPointer(), frameBuffer.Address.ToPointer(), byteCount, byteCount);
-                }
-            }
+            var bitmap = CopyBackBufferToBitmap(new Vector(96.0 * _renderScaling, 96.0 * _renderScaling));
 
             // Source coordinates are physical pixels; destination coordinates are logical units.
-            context.DrawImage(_bitmap, new Rect(0, 0, pixelSize.Width, pixelSize.Height), new Rect(0, 0, Bounds.Width, Bounds.Height));
+            context.DrawImage(bitmap, new Rect(0, 0, bitmap.PixelSize.Width, bitmap.PixelSize.Height), new Rect(0, 0, Bounds.Width, Bounds.Height));
+            LastRenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            PresentedFrames++;
+            QueueFramePresented();
         }
-        else
-            throw new InvalidOperationException($"BackBuffer is not of type {nameof(CommonBackBuffer)}.");
+        finally
+        {
+            _rendering = false;
+            if (_disposed)
+                DisposeResources();
+        }
 
         base.Render(context);
     }
@@ -262,6 +422,7 @@ public sealed class Panel : Control, IDriver, IDisposable
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
+
         UpdateRenderSize();
     }
 
@@ -269,16 +430,35 @@ public sealed class Panel : Control, IDriver, IDisposable
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
+
+        if (_disposed)
+            return;
+
         _topLevel = TopLevel.GetTopLevel(this);
-        if (_topLevel != null) _topLevel.ScalingChanged += OnScalingChanged;
+        if (IsBackgroundRendering)
+        {
+            AttachBackground();
+            return;
+        }
+        if (_topLevel != null)
+            _topLevel.ScalingChanged += OnScalingChanged;
+
         UpdateRenderSize();
     }
 
     /// <inheritdoc />
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
-        if (_topLevel != null) _topLevel.ScalingChanged -= OnScalingChanged;
+        if (IsBackgroundRendering)
+        {
+            DetachBackground();
+            base.OnDetachedFromVisualTree(e);
+            return;
+        }
+        if (_topLevel != null)
+            _topLevel.ScalingChanged -= OnScalingChanged;
         _topLevel = null;
+
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -290,18 +470,26 @@ public sealed class Panel : Control, IDriver, IDisposable
 
     private void UpdateRenderSize()
     {
-        _renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
-        if (_disposed || Bounds.Width <= 0 || Bounds.Height <= 0) return;
-        var size = new System.Drawing.Size(
-            Math.Max(1, (int)Math.Ceiling(Bounds.Width * _renderScaling)),
-            Math.Max(1, (int)Math.Ceiling(Bounds.Height * _renderScaling)));
-        if (_driver.Size != size) _driver.Size = size;
+        if (IsBackgroundRendering)
+        {
+            UpdateBackgroundGeometry();
+            return;
+        }
+        _renderScaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1d;
+        if (_disposed || Bounds.Width <= 0 || Bounds.Height <= 0)
+            return;
+
+        var size = new System.Drawing.Size(Math.Max(1, checked((int) Math.Ceiling(Bounds.Width * _renderScaling))),
+                                           Math.Max(1, checked((int) Math.Ceiling(Bounds.Height * _renderScaling))));
+        if (_driver.Size != size)
+            _driver.Size = size;
     }
 
     /// <inheritdoc />
     protected override void OnPointerEntered(PointerEventArgs e)
     {
-        _inputController.OnMouseEnter(MouseEventArgs.Empty);
+        if (!_disposed)
+            ProcessInput(PointerAction.Enter, MouseEventArgs.Empty);
 
         base.OnPointerEntered(e);
     }
@@ -309,7 +497,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnPointerExited(PointerEventArgs e)
     {
-        _inputController.OnMouseLeave(MouseEventArgs.Empty);
+        if (!_disposed)
+            ProcessInput(PointerAction.Leave, MouseEventArgs.Empty);
 
         base.OnPointerExited(e);
     }
@@ -317,7 +506,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnPointerMoved(PointerEventArgs e)
     {
-        _inputController.OnMouseMove(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
+        if (CanProcessPointer())
+            ProcessInput(PointerAction.Move, PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerMoved(e);
     }
@@ -325,7 +515,10 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        _inputController.OnMouseDown(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
+        if (IsBackgroundRendering && CanProcessPointer())
+            e.Pointer.Capture(this);
+        if (CanProcessPointer())
+            ProcessInput(PointerAction.Down, PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerPressed(e);
     }
@@ -333,7 +526,20 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
-        _inputController.OnMouseUp(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
+        if (CanProcessPointer())
+            ProcessInput(PointerAction.Up, PointerEvent(e, Bounds, _clock.TimeMilliseconds));
+        if (IsBackgroundRendering)
+        {
+            _releasingBackgroundCapture = true;
+            try
+            {
+                e.Pointer.Capture(null);
+            }
+            finally
+            {
+                _releasingBackgroundCapture = false;
+            }
+        }
 
         base.OnPointerReleased(e);
     }
@@ -341,7 +547,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
-        _inputController.OnMouseWheel(PointerEvent(e, Bounds, _clock.TimeMilliseconds));
+        if (CanProcessPointer())
+            ProcessInput(PointerAction.Wheel, PointerEvent(e, Bounds, _clock.TimeMilliseconds));
 
         base.OnPointerWheelChanged(e);
     }
@@ -349,7 +556,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnTapped(TappedEventArgs e)
     {
-        _inputController.OnMouseClick(TappedMouseEvent(e, 1, Bounds, _clock.TimeMilliseconds));
+        if (CanProcessPointer())
+            ProcessInput(PointerAction.Click, TappedMouseEvent(e, 1, Bounds, _clock.TimeMilliseconds));
 
         base.OnTapped(e);
     }
@@ -357,7 +565,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     /// <inheritdoc />
     protected override void OnDoubleTapped(TappedEventArgs e)
     {
-        _inputController.OnMouseDoubleClick(TappedMouseEvent(e, 2, Bounds, _clock.TimeMilliseconds));
+        if (CanProcessPointer())
+            ProcessInput(PointerAction.DoubleClick, TappedMouseEvent(e, 2, Bounds, _clock.TimeMilliseconds));
 
         base.OnDoubleTapped(e);
     }
@@ -365,6 +574,8 @@ public sealed class Panel : Control, IDriver, IDisposable
     #endregion
 
     #region MouseEventConversion
+
+    private bool CanProcessPointer() => !_disposed && !_rendering && Bounds.Width > 0 && Bounds.Height > 0;
 
     private MouseEventArgs PointerEvent(PointerEventArgs args, Rect rect, long timeMS)
     {
@@ -385,11 +596,11 @@ public sealed class Panel : Control, IDriver, IDisposable
         if (args is PointerReleasedEventArgs pointerReleasedEventArgs)
         {
             // Use the initially pressed button for released events
-            if (pointerReleasedEventArgs.InitialPressMouseButton.HasFlag(MouseButton.Left))
+            if (pointerReleasedEventArgs.InitialPressMouseButton == MouseButton.Left)
                 buttons = MouseButtons.Left;
-            else if (pointerReleasedEventArgs.InitialPressMouseButton.HasFlag(MouseButton.Middle))
+            else if (pointerReleasedEventArgs.InitialPressMouseButton == MouseButton.Middle)
                 buttons = MouseButtons.Center;
-            else if (pointerReleasedEventArgs.InitialPressMouseButton.HasFlag(MouseButton.Right))
+            else if (pointerReleasedEventArgs.InitialPressMouseButton == MouseButton.Right)
                 buttons = MouseButtons.Right;
         }
         else

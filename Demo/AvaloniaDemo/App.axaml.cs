@@ -10,6 +10,9 @@ public class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+#if DEBUG
+        this.AttachDeveloperTools();
+#endif
     }
 
     public override void OnFrameworkInitializationCompleted()
@@ -20,10 +23,6 @@ public class App : Application
             activityLifetime.MainViewFactory = () => new MainView();
         else if (ApplicationLifetime is ISingleViewApplicationLifetime singleViewPlatform)
             singleViewPlatform.MainView = new MainView();
-
-#if DEBUG
-        this.AttachDeveloperTools();
-#endif
 
         base.OnFrameworkInitializationCompleted();
     }
