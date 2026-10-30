@@ -8,8 +8,8 @@
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Avalonia" Version="12.1.3" />
-        <PackageReference Include="ILNumerics.Core" Version="7.4.62" />
-        <PackageReference Include="ILNumerics.Drawing" Version="7.4.62" />
+        <PackageReference Include="ILNumerics.Core" Version="7.4.77" />
+        <PackageReference Include="ILNumerics.Drawing" Version="7.4.77" />
         <PackageReference Include="MinVer" Version="8.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
